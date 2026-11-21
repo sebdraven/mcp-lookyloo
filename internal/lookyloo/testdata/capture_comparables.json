@@ -1,0 +1,1 @@
+{"root_url": "https://example.com/", "final_url": "https://example.com/", "final_hostname": "example.com", "final_status_code": 200, "redirects": {"length": 1, "nodes": [{"url": "https://example.com/", "hostname": "example.com", "ip_address": "2606:4700:10::ac42:93f3"}]}, "ressources": [["https://example.com/", "example.com"], ["https://example.com/s.js", "example.com"]]}
