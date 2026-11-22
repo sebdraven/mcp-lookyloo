@@ -117,7 +117,6 @@ func TestPathsOutsideFilesRootAreRefused(t *testing.T) {
 		"missing file":                      "docs/missing.html",
 		"system file":                       "/etc/passwd",
 		"home directory":                    "~/.ssh/id_ed25519",
-		"empty after trimming":              "   ",
 		"directory outside the root, as ..": "..",
 	}
 	e := start(t, map[string]reply{}, "", Options{AllowPush: true, FilesRoot: mustRoot(t, sb.root)})
@@ -160,6 +159,15 @@ func TestPathsInsideFilesRootAreRead(t *testing.T) {
 	}
 	if _, _, err := fr.ReadFile("document_path", "..notes.html", 1<<10); err != nil {
 		t.Errorf("a file whose name starts with .. was refused: %v", err)
+	}
+}
+
+func TestReadFileRefusesABlankPath(t *testing.T) {
+	fr := mustRoot(t, newSandbox(t).root)
+	for _, path := range []string{"", "   "} {
+		if _, _, err := fr.ReadFile("document_path", path, 1<<10); err == nil {
+			t.Errorf("ReadFile(%q) was accepted", path)
+		}
 	}
 }
 
