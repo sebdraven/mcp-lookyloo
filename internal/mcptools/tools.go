@@ -18,6 +18,7 @@ const (
 
 type Options struct {
 	OutDir     string
+	FilesRoot  *FilesRoot
 	ReadOnly   bool
 	AllowPush  bool
 	AllowAdmin bool

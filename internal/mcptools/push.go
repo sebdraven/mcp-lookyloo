@@ -5,8 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -29,14 +27,14 @@ type mispPushInput struct {
 }
 
 type uploadInput struct {
-	FullCapturePath string `json:"full_capture_path,omitempty" jsonschema:"local ZIP from lk_capture_export of another instance; give exactly one of full_capture_path, full_capture, har_file_path, har_file"`
+	FullCapturePath string `json:"full_capture_path,omitempty" jsonschema:"ZIP from lk_capture_export of another instance, relative to or inside -files-root; give exactly one of full_capture_path, full_capture, har_file_path, har_file"`
 	FullCapture     string `json:"full_capture,omitempty" jsonschema:"base64 of such a ZIP"`
-	HARFilePath     string `json:"har_file_path,omitempty" jsonschema:"local HAR file, plain JSON or gzip"`
+	HARFilePath     string `json:"har_file_path,omitempty" jsonschema:"HAR file, plain JSON or gzip, relative to or inside -files-root"`
 	HARFile         string `json:"har_file,omitempty" jsonschema:"base64 of a HAR file, plain JSON or gzip"`
 	LandingPage     string `json:"landing_page,omitempty" jsonschema:"with a HAR: the URL the capture ended on"`
-	ScreenshotPath  string `json:"screenshot_path,omitempty" jsonschema:"with a HAR: local PNG screenshot"`
-	HTMLPath        string `json:"html_path,omitempty" jsonschema:"with a HAR: local HTML of the landing page"`
-	Listing         bool   `json:"listing,omitempty" jsonschema:"show the imported capture on the public index (default false)"`
+	ScreenshotPath  string `json:"screenshot_path,omitempty" jsonschema:"with a HAR: PNG screenshot, relative to or inside -files-root"`
+	HTMLPath        string `json:"html_path,omitempty" jsonschema:"with a HAR: HTML of the landing page, relative to or inside -files-root"`
+	Listing         bool   `json:"listing,omitempty" jsonschema:"show the imported capture on the web index (default false); false does not make it private, it stays listed by the recent_captures API"`
 }
 
 func (r *registry) pushTools(s *mcp.Server) {
@@ -55,7 +53,8 @@ func (r *registry) pushTools(s *mcp.Server) {
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_upload_capture",
 		Description: "Import into this instance a capture made elsewhere: a full ZIP export, or a HAR file with optional landing page, screenshot and HTML. " +
-			"Returns the UUID of the new capture, unlisted unless listing is true. Only registered with -allow-push.",
+			"Returns the UUID of the new capture, unlisted unless listing is true; listing=false only hides it from the web index, it stays visible to anyone through the recent_captures API of the instance, so never upload anything confidential to a shared instance. " +
+			"Paths are read only inside -files-root. Only registered with -allow-push.",
 	}, r.upload)
 }
 
@@ -75,24 +74,12 @@ func (r *registry) mispPush(ctx context.Context, _ *mcp.CallToolRequest, in misp
 	return rawResult(raw), nil, nil
 }
 
-func readLocal(field, path string) ([]byte, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
+func (r *registry) readLocal(field, path string) ([]byte, error) {
+	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", field, err)
-	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxUploadBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", field, err)
-	}
-	if len(b) > maxUploadBytes {
-		return nil, fmt.Errorf("%s: the file is larger than %d bytes", field, maxUploadBytes)
-	}
-	return b, nil
+	b, _, err := r.opts.FilesRoot.ReadFile(field, path, maxUploadBytes)
+	return b, err
 }
 
 func decodeB64(field, s string) ([]byte, error) {
@@ -122,12 +109,12 @@ func (r *registry) upload(ctx context.Context, _ *mcp.CallToolRequest, in upload
 		dst  *[]byte
 		load func() ([]byte, error)
 	}{
-		{&p.FullCapture, func() ([]byte, error) { return readLocal("full_capture_path", in.FullCapturePath) }},
+		{&p.FullCapture, func() ([]byte, error) { return r.readLocal("full_capture_path", in.FullCapturePath) }},
 		{&p.FullCapture, func() ([]byte, error) { return decodeB64("full_capture", in.FullCapture) }},
-		{&p.HAR, func() ([]byte, error) { return readLocal("har_file_path", in.HARFilePath) }},
+		{&p.HAR, func() ([]byte, error) { return r.readLocal("har_file_path", in.HARFilePath) }},
 		{&p.HAR, func() ([]byte, error) { return decodeB64("har_file", in.HARFile) }},
-		{&p.Screenshot, func() ([]byte, error) { return readLocal("screenshot_path", in.ScreenshotPath) }},
-		{&p.HTML, func() ([]byte, error) { return readLocal("html_path", in.HTMLPath) }},
+		{&p.Screenshot, func() ([]byte, error) { return r.readLocal("screenshot_path", in.ScreenshotPath) }},
+		{&p.HTML, func() ([]byte, error) { return r.readLocal("html_path", in.HTMLPath) }},
 	}
 	for _, st := range steps {
 		b, err := st.load()

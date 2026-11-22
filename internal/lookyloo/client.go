@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-const DefaultBaseURL = "http://citizen-lab:5100"
-
 const (
 	DefaultTimeout   = 60 * time.Second
 	ArtefactTimeout  = 300 * time.Second
@@ -54,9 +52,6 @@ func WithTokenSource(ts TokenSource) Option {
 }
 
 func New(baseURL string, opts ...Option) *Client {
-	if strings.TrimSpace(baseURL) == "" {
-		baseURL = DefaultBaseURL
-	}
 	c := &Client{
 		baseURL:   strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		userAgent: "mcp-lookyloo/dev",

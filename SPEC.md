@@ -19,13 +19,13 @@ Document destiné à l'agent qui implémente le projet de bout en bout (code, te
 | **Niveau P** (push) | Tool qui provoque un effet **hors** de l'instance : envoi d'email, push MISP, import de capture. |
 | **Niveau A** (admin) | Tool d'administration de l'instance, dont certains destructifs. |
 | **Fixture** | Réponse JSON/binaire réelle enregistrée depuis l'instance de référence, rejouée par `httptest` en CI. |
-| **Instance de référence** | `http://citizen-lab:5100`, Lookyloo **1.27.0**. |
+| **Instance de référence** | l'instance de développement, Lookyloo **1.27.0** (son nom d'hôte n'apparaît pas dans le dépôt ; exemple : `https://lookyloo.example.org`). |
 
 ---
 
 ## 1. Source de vérité de l'API
 
-- Swagger 2.0 de l'instance : `http://citizen-lab:5100/swagger.json` (titre « Lookyloo API », version `1.27.0`).
+- Swagger 2.0 de l'instance : `<instance>/swagger.json` (titre « Lookyloo API », version `1.27.0`).
 - L'agent récupère ce fichier et le versionne dans `api/lookyloo-swagger-1.27.0.json`. Toute évolution de l'API passe par la mise à jour de ce fichier dans une PR dédiée.
 - Le swagger ne décrit **pas** la plupart des corps de réponse (seulement `"200": Success`). Les types Go des réponses se calent sur les **fixtures réelles**, pas sur des suppositions. Quand une forme n'est pas connue, le tool renvoie le JSON brut (`json.RawMessage`) tel quel.
 - Point non documenté dans le swagger : le corps de `POST /json/upload`. L'agent lit le code de Lookyloo (`website/web/genericapi.py`, dépôt `Lookyloo/lookyloo`, tag correspondant à 1.27.0) pour en déduire le format, et le cite en commentaire de PR. Pas de devinette.
@@ -133,7 +133,7 @@ Chaque tool porte ses `ToolAnnotations` : `readOnlyHint=true` pour R ; `destruct
 
 | Élément | Source (par ordre de priorité) |
 |---|---|
-| URL de l'instance | flag `-url`, puis `LOOKYLOO_URL`, défaut `http://citizen-lab:5100` |
+| URL de l'instance | flag `-url`, puis `LOOKYLOO_URL`, sans défaut : obligatoire |
 | Token API | `LOOKYLOO_API_KEY`, puis trousseau macOS service `lookyloo` (`security find-generic-password -s lookyloo -w`), puis obtention via `POST /json/get_token` avec `LOOKYLOO_USERNAME` / `LOOKYLOO_PASSWORD` |
 | Répertoire d'artefacts | paramètre du tool, puis flag `-out` |
 
@@ -151,7 +151,7 @@ mcp-lookyloo/
 ├── cmd/mcp-lookyloo/main.go
 ├── internal/
 │   ├── lookyloo/          client HTTP, un fichier par groupe (capture.go, search.go, artefacts.go, submit.go, push.go, admin.go, auth.go)
-│   │   └── testdata/      fixtures enregistrées depuis citizen-lab
+│   │   └── testdata/      fixtures enregistrées depuis l'instance de développement
 │   └── mcptools/          enregistrement des tools, gating par niveau
 ├── spec/                  specs Quint (.qnt), une par feature à état
 ├── .github/workflows/     ci.yml, release.yml, zizmor.yml
@@ -210,7 +210,7 @@ La correspondance spec ↔ code est assurée par des tests Go qui reprennent les
 ## 6. Tests (exécutés **uniquement** en CI)
 
 - **Unitaires** avec `httptest.Server` rejouant les fixtures de `internal/lookyloo/testdata/`. Chaque tool a au moins : un cas nominal, un cas 404/UUID inconnu, un cas paramètre invalide (validé avant tout appel HTTP).
-- **Enregistrement des fixtures** : l'agent les capture depuis `http://citizen-lab:5100` (requêtes de lecture uniquement + une soumission de test avec `listing=0` sur une URL inoffensive), puis les nettoie (aucun token, aucun cookie de session réel). Les fixtures binaires (PNG, ZIP) sont réduites au minimum valide.
+- **Enregistrement des fixtures** : l'agent les capture depuis l'instance de développement (requêtes de lecture uniquement + une soumission de test avec `listing=0` sur une URL inoffensive), puis les nettoie (aucun token, aucun cookie de session réel). Les fixtures binaires (PNG, ZIP) sont réduites au minimum valide.
 - **Tests de contrat** : un test vérifie que chaque `operationId` du swagger versionné est soit mappé à un tool, soit listé dans l'exclusion §2.8. Une opération ajoutée au swagger sans mapping fait échouer la CI.
 - **Tests de gating** : liste exacte des tools par combinaison de flags (miroir de §5.2).
 - **Intégration** contre une vraie instance : `//go:build integration`, lancée seulement si `LOOKYLOO_URL` est défini, **non lancée en CI** par défaut.

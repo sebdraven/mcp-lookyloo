@@ -26,16 +26,14 @@ func (t StaticToken) Token(context.Context) (string, error) {
 
 type GetTokenFunc func(ctx context.Context, username, password string) (string, error)
 
-// Resolver walks env, keychain, then get_token, once per process (spec/auth.qnt).
+// Resolver walks env, keychain, then get_token (spec/auth.qnt). Only a token is cached: a failure is retried on the next call.
 type Resolver struct {
 	getenv   func(string) string
 	keychain func() string
 	getToken GetTokenFunc
 
-	mu       sync.Mutex
-	resolved bool
-	token    string
-	err      error
+	mu    sync.Mutex
+	token string
 }
 
 func NewResolver(getToken GetTokenFunc) *Resolver {
@@ -45,11 +43,15 @@ func NewResolver(getToken GetTokenFunc) *Resolver {
 func (r *Resolver) Token(ctx context.Context) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.resolved {
-		r.token, r.err = r.resolve(ctx)
-		r.resolved = true
+	if r.token != "" {
+		return r.token, nil
 	}
-	return r.token, r.err
+	t, err := r.resolve(ctx)
+	if err != nil {
+		return "", err
+	}
+	r.token = t
+	return t, nil
 }
 
 func (r *Resolver) resolve(ctx context.Context) (string, error) {

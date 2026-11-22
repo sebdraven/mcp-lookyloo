@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -22,7 +24,8 @@ var version = "dev"
 func main() {
 	var (
 		outDir   = flag.String("out", "", "default directory for saved artefacts (screenshots, ZIPs)")
-		baseURL  = flag.String("url", "", "Lookyloo instance URL (default: $"+lookyloo.EnvURL+", then "+lookyloo.DefaultBaseURL+")")
+		baseURL  = flag.String("url", "", "Lookyloo instance URL, required (default: $"+lookyloo.EnvURL+")")
+		filesDir = flag.String("files-root", "", "directory the *_path parameters may read from; without it they are refused")
 		info     = flag.String("info", "", "print the information of one capture and exit")
 		urlInfo  = flag.String("url-info", "", "print the captures in which this URL was seen and exit")
 		submit   = flag.String("submit", "", "submit one URL (listing off), print its UUID and exit")
@@ -40,7 +43,17 @@ func main() {
 		return
 	}
 
-	client := lookyloo.New(instanceURL(*baseURL), lookyloo.WithVersion(version))
+	u, err := instanceURL(*baseURL)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	var filesRoot *mcptools.FilesRoot
+	if strings.TrimSpace(*filesDir) != "" {
+		if filesRoot, err = mcptools.NewFilesRoot(*filesDir); err != nil {
+			log.Fatalf("%v", err)
+		}
+	}
+	client := lookyloo.New(u, lookyloo.WithVersion(version))
 	ctx := context.Background()
 
 	if *info != "" {
@@ -95,6 +108,7 @@ func main() {
 	}, nil)
 	mcptools.Register(server, client, mcptools.Options{
 		OutDir:     *outDir,
+		FilesRoot:  filesRoot,
 		ReadOnly:   *readOnly,
 		AllowPush:  *push,
 		AllowAdmin: *admin,
@@ -113,14 +127,19 @@ func main() {
 	}
 }
 
-func instanceURL(flagValue string) string {
-	if u := strings.TrimSpace(flagValue); u != "" {
-		return u
+func instanceURL(flagValue string) (string, error) {
+	u := strings.TrimSpace(flagValue)
+	if u == "" {
+		u = strings.TrimSpace(os.Getenv(lookyloo.EnvURL))
 	}
-	if u := strings.TrimSpace(os.Getenv(lookyloo.EnvURL)); u != "" {
-		return u
+	if u == "" {
+		return "", errors.New("no Lookyloo instance: pass -url https://lookyloo.example.org or set " + lookyloo.EnvURL)
 	}
-	return lookyloo.DefaultBaseURL
+	pu, err := url.Parse(u)
+	if err != nil || (pu.Scheme != "http" && pu.Scheme != "https") || pu.Host == "" {
+		return "", fmt.Errorf("instance URL %q: want http(s)://host[:port]", u)
+	}
+	return u, nil
 }
 
 func printJSON(raw json.RawMessage) {

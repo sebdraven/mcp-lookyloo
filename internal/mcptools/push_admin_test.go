@@ -92,15 +92,18 @@ func TestMISPPushReportsLookylooErrors(t *testing.T) {
 }
 
 func TestUploadFullCapture(t *testing.T) {
-	zipPath := filepath.Join("..", "lookyloo", "testdata", "capture_export.zip")
+	dir := t.TempDir()
 	zipBytes := readFixture(t, "capture_export.zip")
-	e := start(t, map[string]reply{"POST /json/upload": {body: `{"uuid": "` + unknownUUID + `", "messages": {"errors": [], "warnings": []}}`}}, "", withPush)
+	if err := os.WriteFile(filepath.Join(dir, "export.zip"), zipBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := start(t, map[string]reply{"POST /json/upload": {body: `{"uuid": "` + unknownUUID + `", "messages": {"errors": [], "warnings": []}}`}}, "", Options{AllowPush: true, FilesRoot: mustRoot(t, dir)})
 
 	var out struct {
 		UUID     string         `json:"uuid"`
 		Messages map[string]any `json:"messages"`
 	}
-	decode(t, e.call(t, "lk_upload_capture", map[string]any{"full_capture_path": zipPath}), &out)
+	decode(t, e.call(t, "lk_upload_capture", map[string]any{"full_capture_path": "export.zip"}), &out)
 	if out.UUID != unknownUUID || out.Messages == nil {
 		t.Errorf("upload = %+v", out)
 	}
@@ -123,7 +126,7 @@ func TestUploadHAR(t *testing.T) {
 	if err := os.WriteFile(png, readFixture(t, "capture_screenshot.png"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	e := start(t, map[string]reply{"POST /json/upload": {body: `{"uuid": "` + captureUUID + `"}`}}, "", withPush)
+	e := start(t, map[string]reply{"POST /json/upload": {body: `{"uuid": "` + captureUUID + `"}`}}, "", Options{AllowPush: true, FilesRoot: mustRoot(t, dir)})
 	res := e.call(t, "lk_upload_capture", map[string]any{"har_file_path": har, "screenshot_path": png, "landing_page": "https://example.com/", "listing": true})
 	if res.IsError {
 		t.Fatal(text(res))
@@ -148,7 +151,7 @@ func TestUploadRejectsBadInputBeforeHTTP(t *testing.T) {
 	if err := os.WriteFile(notZip, []byte("not a zip"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	e := start(t, map[string]reply{}, "", withPush)
+	e := start(t, map[string]reply{}, "", Options{AllowPush: true, FilesRoot: mustRoot(t, dir)})
 	for _, args := range []map[string]any{
 		{},
 		{"full_capture": "UEsDBA==", "har_file": "e30="},

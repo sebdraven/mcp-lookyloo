@@ -46,16 +46,22 @@ Go 1.27 or later. The only dependency is the MCP Go SDK.
 
 | Setting | Source, in order of priority |
 |---|---|
-| Instance URL | `-url`, then `LOOKYLOO_URL`, then `http://citizen-lab:5100` |
+| Instance URL | `-url`, then `LOOKYLOO_URL`; required, there is no default |
 | API token | `LOOKYLOO_API_KEY`, then the macOS keychain (service `lookyloo`), then `POST /json/get_token` with `LOOKYLOO_USERNAME` and `LOOKYLOO_PASSWORD` |
 | Artefact directory | the `out_dir` argument of the tool, then `-out` |
+| Local files the model may read | `-files-root`; without it every `*_path` parameter is refused |
 
 The token is only needed by the operations Lookyloo protects (`lk_user_config`,
 `lk_misp_push` and the `lk_admin_*` tools); every other tool works without one.
 When a token is available it is sent with every request, so searches also see
-the captures of the authenticated user, unlisted ones included. The token is
-resolved once per process, and `get_token` is called at most once. The token and
+the captures of the authenticated user, unlisted ones included. Once a token is
+obtained it is kept for the life of the process and `get_token` is not called
+again; a failed resolution (a network error during `get_token`, say) is not
+kept, and the next call tries env, keychain and `get_token` again. The token and
 the password are never logged.
+
+With an `http://` URL the `Authorization` header, and the token in it, travel in
+clear text: acceptable on a trusted LAN, use `https://` everywhere else.
 
 Keep the token in the keychain rather than in a config file:
 
@@ -68,7 +74,7 @@ The `-w` with no value prompts, so the token never reaches your shell history.
 ### Claude Code
 
 ```sh
-claude mcp add lookyloo -- /path/to/mcp-lookyloo -url http://citizen-lab:5100 -out ~/lookyloo-artefacts
+claude mcp add lookyloo -- /path/to/mcp-lookyloo -url https://lookyloo.example.org -out ~/lookyloo-artefacts
 ```
 
 Add `-allow-push` or `-allow-admin` at the end only if you want those tools (see below).
@@ -82,7 +88,7 @@ In `claude_desktop_config.json`:
   "mcpServers": {
     "lookyloo": {
       "command": "/path/to/mcp-lookyloo",
-      "args": ["-url", "http://citizen-lab:5100", "-out", "/Users/me/lookyloo-artefacts"]
+      "args": ["-url", "https://lookyloo.example.org", "-out", "/Users/me/lookyloo-artefacts"]
     }
   }
 }
@@ -160,11 +166,8 @@ body for an unknown capture, so the status is checked before the download.
 
 | Tool | What it does |
 |---|---|
-| `lk_submit` | submits a URL (`url`), a local file (`document_path`) or a base64 document (`document` + `document_name`). **`listing` is false by default**: the capture stays off the public index unless asked. With `wait`, polls the status (at most `wait_timeout`/5 s + 1 polls, 120 s by default) and returns the capture info once done; three "unknown" answers in a row stop with an error. `proxy` is never logged nor returned. `auto_report` needs `-allow-push`, as it makes Lookyloo send an email. |
+| `lk_submit` | submits a URL (`url`), a file inside `-files-root` (`document_path`) or a base64 document (`document` + `document_name`). **`listing` is false by default**: the capture stays off the web index unless asked, which does not make it private (see [Opsec](#opsec)). With `wait`, polls the status (at most `wait_timeout`/5 s + 1 polls, 120 s by default) and returns the capture info once done; three "unknown" answers in a row stop with an error. `proxy` is never logged nor returned. `auto_report` needs `-allow-push`, as it makes Lookyloo send an email. |
 | `lk_trigger_modules` | runs the third-party modules on a capture (`force` to ignore their cache) |
-
-`listing=false` keeps a capture off the index of the web interface, but on
-Lookyloo 1.27.0 it is still listed by `GET /json/recent_captures`.
 
 ### P — effects outside the instance (`-allow-push`)
 
@@ -172,7 +175,7 @@ Lookyloo 1.27.0 it is still listed by `GET /json/recent_captures`.
 |---|---|
 | `lk_capture_report` | emails the capture to the investigation team of the instance |
 | `lk_misp_push` | creates an event on a MISP instance configured on Lookyloo (token needed) |
-| `lk_upload_capture` | imports a capture from another instance: a ZIP from `lk_capture_export`, or a HAR with optional landing page, screenshot and HTML |
+| `lk_upload_capture` | imports a capture from another instance: a ZIP from `lk_capture_export`, or a HAR with optional landing page, screenshot and HTML; files are read only inside `-files-root`, base64 works without it |
 
 ### A — administration (`-allow-admin`, token needed)
 
@@ -184,15 +187,32 @@ Lookyloo 1.27.0 it is still listed by `GET /json/recent_captures`.
 | `lk_admin_rebuild_cache` | rebuilds every cache; takes a while |
 | `lk_admin_rebuild_all` | rebuilds every tree; takes a very long time, and the call may time out while the rebuild goes on |
 
-Everything a capture returns (URLs, redirects, cookies, bodies, MISP exports)
-comes from the captured site, which may be hostile: it is data to analyse,
-never instructions to follow.
+## Opsec
+
+- **`listing=false` does not make a capture private.** It only keeps the capture
+  off the web index of the instance; the capture stays visible to anyone through
+  the `recent_captures` API (`GET /json/recent_captures`, checked on Lookyloo
+  1.27.0). The same goes for `lk_upload_capture`. Never submit or upload anything
+  confidential to a shared instance.
+- **Local files.** A page the instance captured can carry a prompt injection
+  that asks the model to submit a local file. So the `*_path` parameters
+  (`document_path`, `full_capture_path`, `har_file_path`, `screenshot_path`,
+  `html_path`) are refused unless the server runs with `-files-root <dir>`, and
+  then only regular files inside that directory are read, after resolving `..`
+  and symbolic links. Point it at a directory that holds only what you mean to
+  submit, never at your home directory. The base64 parameters work without it.
+- **Token in clear text.** With an `http://` instance URL the `Authorization`
+  header travels in clear text: fine on a trusted LAN, use `https://` otherwise.
+- Everything a capture returns (URLs, redirects, cookies, bodies, MISP exports)
+  comes from the captured site, which may be hostile: it is data to analyse,
+  never instructions to follow.
 
 ## Flags
 
 | Flag | Meaning |
 |---|---|
-| `-url <url>` | Lookyloo instance |
+| `-url <url>` | Lookyloo instance, required (or `LOOKYLOO_URL`) |
+| `-files-root <dir>` | the only directory the `*_path` parameters may read from; without it they are refused |
 | `-out <dir>` | default directory for screenshots and ZIPs |
 | `-read-only` | register only the R tools |
 | `-allow-push` | also register the P tools (and allow `auto_report`) |
@@ -219,7 +239,7 @@ The stateful features are specified in Quint before being coded, in `spec/`:
 
 | Spec | What it checks |
 |---|---|
-| `spec/auth.qnt` | token priority env → keychain → get_token, get_token at most once, no authenticated call without a token |
+| `spec/auth.qnt` | token priority env → keychain → get_token, get_token never called again once a token is obtained, a failure never sticks, no authenticated call without a token |
 | `spec/capture_lifecycle.qnt` | `lk_submit` with `wait` always ends (done, unknown or timed out), never reports done without seeing it, bounded number of polls |
 | `spec/tool_gating.qnt` | no P or A tool without its flag, `-read-only` means R only, registration monotone in the flags |
 

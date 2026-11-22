@@ -10,13 +10,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
-// authWorld mirrors the state of spec/auth.qnt.
+// authWorld mirrors the state of spec/auth.qnt; getTokenOK is the outcome of each get_token attempt, the last one repeated.
 type authWorld struct {
 	env           map[string]string
 	keychain      string
-	getTokenOK    bool
+	getTokenOK    []bool
 	keychainCalls int
 	getTokenCalls int
 }
@@ -29,9 +30,10 @@ func (w *authWorld) resolver() *Resolver {
 			return w.keychain
 		},
 		getToken: func(_ context.Context, user, pass string) (string, error) {
+			ok := len(w.getTokenOK) > 0 && w.getTokenOK[min(w.getTokenCalls, len(w.getTokenOK)-1)]
 			w.getTokenCalls++
-			if !w.getTokenOK {
-				return "", errors.New("user/password invalid")
+			if !ok {
+				return "", errors.New("dial tcp: connection refused")
 			}
 			return "FETCHED", nil
 		},
@@ -73,7 +75,7 @@ func creds() map[string]string {
 func TestAuth_envWinsTest(t *testing.T) {
 	env := creds()
 	env[EnvAPIKey] = "ENV"
-	w := &authWorld{env: env, keychain: "KEYCHAIN", getTokenOK: true}
+	w := &authWorld{env: env, keychain: "KEYCHAIN", getTokenOK: []bool{true}}
 	rec := &recorder{}
 	c := New(rec.server(t).URL, WithTokenSource(w.resolver()))
 
@@ -93,7 +95,7 @@ func TestAuth_envWinsTest(t *testing.T) {
 }
 
 func TestAuth_keychainFallbackTest(t *testing.T) {
-	w := &authWorld{env: creds(), keychain: "KEYCHAIN", getTokenOK: true}
+	w := &authWorld{env: creds(), keychain: "KEYCHAIN", getTokenOK: []bool{true}}
 	rec := &recorder{}
 	c := New(rec.server(t).URL, WithTokenSource(w.resolver()))
 
@@ -110,8 +112,8 @@ func TestAuth_keychainFallbackTest(t *testing.T) {
 	}
 }
 
-func TestAuth_getTokenOnceTest(t *testing.T) {
-	w := &authWorld{env: creds(), getTokenOK: true}
+func TestAuth_getTokenOnceObtainedTest(t *testing.T) {
+	w := &authWorld{env: creds(), getTokenOK: []bool{true, false}}
 	rec := &recorder{}
 	c := New(rec.server(t).URL, WithTokenSource(w.resolver()))
 
@@ -136,21 +138,34 @@ func TestAuth_getTokenOnceTest(t *testing.T) {
 	}
 }
 
-func TestAuth_getTokenFailureNotRetriedTest(t *testing.T) {
-	w := &authWorld{env: creds(), getTokenOK: false}
-	c := New(noCallServer(t).URL, WithTokenSource(w.resolver()))
+func TestAuth_getTokenFailureRetriedTest(t *testing.T) {
+	w := &authWorld{env: creds(), getTokenOK: []bool{false, true, false}}
+	rec := &recorder{}
+	c := New(rec.server(t).URL, WithTokenSource(w.resolver()))
 
+	err := call(c, authRequired)
+	if !errors.Is(err, ErrNoToken) {
+		t.Fatalf("err = %v, want ErrNoToken", err)
+	}
+	if strings.Contains(err.Error(), "s3cret") {
+		t.Fatalf("the password leaked into the error: %v", err)
+	}
+	if len(rec.got()) != 0 {
+		t.Fatal("an authenticated call reached HTTP without a token")
+	}
 	for range 2 {
-		err := call(c, authRequired)
-		if !errors.Is(err, ErrNoToken) {
-			t.Fatalf("err = %v, want ErrNoToken", err)
-		}
-		if strings.Contains(err.Error(), "s3cret") {
-			t.Fatalf("the password leaked into the error: %v", err)
+		if err := call(c, authRequired); err != nil {
+			t.Fatalf("the failure stuck: %v", err)
 		}
 	}
-	if w.getTokenCalls != 1 {
-		t.Errorf("get_token called %d times", w.getTokenCalls)
+	if w.getTokenCalls != 2 {
+		t.Errorf("get_token called %d times, want 2 (one failure, one success, then the cache)", w.getTokenCalls)
+	}
+	if w.keychainCalls != 2 {
+		t.Errorf("keychain asked %d times, want 2: a retry walks the whole chain again", w.keychainCalls)
+	}
+	if got := rec.got(); len(got) != 2 || got[0] != "FETCHED" || got[1] != "FETCHED" {
+		t.Errorf("headers = %q", got)
 	}
 }
 
@@ -182,6 +197,9 @@ func TestAuth_requiredWithoutTokenErrorsTest(t *testing.T) {
 	if len(rec.got()) != 1 || rec.got()[0] != "" {
 		t.Errorf("headers = %q", rec.got())
 	}
+	if w.keychainCalls != 2 {
+		t.Errorf("keychain asked %d times, want 2: nothing is cached without a token", w.keychainCalls)
+	}
 }
 
 func TestResolverIsSafeAndOnceUnderConcurrency(t *testing.T) {
@@ -211,8 +229,59 @@ func TestResolverIsSafeAndOnceUnderConcurrency(t *testing.T) {
 	}
 }
 
+func TestResolverNeverOverlapsGetTokenAndRetriesAfterAFailure(t *testing.T) {
+	var calls, inflight, maxInflight atomic.Int32
+	env := creds()
+	r := &Resolver{
+		getenv:   func(k string) string { return env[k] },
+		keychain: func() string { return "" },
+		getToken: func(context.Context, string, string) (string, error) {
+			n := inflight.Add(1)
+			defer inflight.Add(-1)
+			for {
+				m := maxInflight.Load()
+				if n <= m || maxInflight.CompareAndSwap(m, n) {
+					break
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+			if calls.Add(1) == 1 {
+				return "", errors.New("dial tcp: connection refused")
+			}
+			return "FETCHED", nil
+		},
+	}
+	var wg sync.WaitGroup
+	var failures, successes atomic.Int32
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tok, err := r.Token(context.Background())
+			switch {
+			case err == nil && tok == "FETCHED":
+				successes.Add(1)
+			case errors.Is(err, ErrNoToken):
+				failures.Add(1)
+			default:
+				t.Errorf("Token = %q, %v", tok, err)
+			}
+		}()
+	}
+	wg.Wait()
+	if m := maxInflight.Load(); m != 1 {
+		t.Errorf("%d get_token calls ran at the same time", m)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("get_token called %d times, want 2", n)
+	}
+	if failures.Load() != 1 || successes.Load() != 31 {
+		t.Errorf("%d failures, %d successes", failures.Load(), successes.Load())
+	}
+}
+
 func TestAnonymousCallsNeverResolve(t *testing.T) {
-	w := &authWorld{env: creds(), keychain: "KEYCHAIN", getTokenOK: true}
+	w := &authWorld{env: creds(), keychain: "KEYCHAIN", getTokenOK: []bool{true}}
 	rec := &recorder{}
 	c := New(rec.server(t).URL, WithTokenSource(w.resolver()))
 	if err := call(c, authNone); err != nil {
