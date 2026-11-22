@@ -59,6 +59,30 @@ jobs:
           version: latest
           install-go: false
 
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: swagger contract (every operation mapped to a tool or excluded)
+        run: |
+          set -o pipefail
+          go test -count=1 -v -run '^TestContract' ./internal/mcptools/ | tee contract.log
+
+      - name: contract summary
+        run: |
+          {
+            echo "swagger: api/lookyloo-swagger-1.27.0.json"
+            grep -E '^(--- |ok|FAIL)' contract.log
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
     runs-on: ubuntu-latest
     steps:

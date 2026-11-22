@@ -117,6 +117,12 @@ func start(t *testing.T, routes map[string]reply, token string, opts Options) *e
 	s := mcp.NewServer(&mcp.Implementation{Name: "lookyloo", Version: "test"}, nil)
 	names := Register(s, c, opts)
 
+	cs := connect(t, s)
+	return &env{fake: f, session: cs, names: names}
+}
+
+func connect(t *testing.T, s *mcp.Server) *mcp.ClientSession {
+	t.Helper()
 	ctx := context.Background()
 	st, ct := mcp.NewInMemoryTransports()
 	ss, err := s.Connect(ctx, st, nil)
@@ -131,7 +137,7 @@ func start(t *testing.T, routes map[string]reply, token string, opts Options) *e
 		cs.Close()
 		ss.Close()
 	})
-	return &env{fake: f, session: cs, names: names}
+	return cs
 }
 
 func (e *env) call(t *testing.T, name string, args map[string]any) *mcp.CallToolResult {
