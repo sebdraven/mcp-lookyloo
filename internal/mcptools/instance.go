@@ -8,7 +8,7 @@ import (
 )
 
 func (r *registry) rawInstanceTool(s *mcp.Server, name, description string, fetch func(context.Context) (json.RawMessage, error)) {
-	addTool(r, s, &mcp.Tool{Name: name, Description: description, Annotations: readOnly()},
+	addTool(r, s, &mcp.Tool{Name: name, Description: description},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			raw, err := fetch(ctx)
 			if err != nil {

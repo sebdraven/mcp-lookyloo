@@ -21,14 +21,17 @@ var version = "dev"
 
 func main() {
 	var (
-		outDir  = flag.String("out", "", "default directory for saved artefacts (screenshots, ZIPs)")
-		baseURL = flag.String("url", "", "Lookyloo instance URL (default: $"+lookyloo.EnvURL+", then "+lookyloo.DefaultBaseURL+")")
-		info    = flag.String("info", "", "print the information of one capture and exit")
-		urlInfo = flag.String("url-info", "", "print the captures in which this URL was seen and exit")
-		submit  = flag.String("submit", "", "submit one URL (listing off), print its UUID and exit")
-		wait    = flag.Bool("wait", false, "with -submit, wait for the capture to finish")
-		addr    = flag.String("http", "", "serve streamable HTTP on this address instead of stdio; no authentication, bind to 127.0.0.1 (e.g. 127.0.0.1:8080)")
-		showVer = flag.Bool("version", false, "print the version and exit")
+		outDir   = flag.String("out", "", "default directory for saved artefacts (screenshots, ZIPs)")
+		baseURL  = flag.String("url", "", "Lookyloo instance URL (default: $"+lookyloo.EnvURL+", then "+lookyloo.DefaultBaseURL+")")
+		info     = flag.String("info", "", "print the information of one capture and exit")
+		urlInfo  = flag.String("url-info", "", "print the captures in which this URL was seen and exit")
+		submit   = flag.String("submit", "", "submit one URL (listing off), print its UUID and exit")
+		wait     = flag.Bool("wait", false, "with -submit, wait for the capture to finish")
+		readOnly = flag.Bool("read-only", false, "register only the read tools (no lk_submit, lk_trigger_modules)")
+		push     = flag.Bool("allow-push", false, "also register the tools with effects outside the instance: email report, MISP push, capture upload")
+		admin    = flag.Bool("allow-admin", false, "also register the administration tools, lk_admin_remove included")
+		addr     = flag.String("http", "", "serve streamable HTTP on this address instead of stdio; no authentication, bind to 127.0.0.1 (e.g. 127.0.0.1:8080)")
+		showVer  = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Parse()
 
@@ -90,7 +93,12 @@ func main() {
 		Name:    "lookyloo",
 		Version: version,
 	}, nil)
-	mcptools.Register(server, client, mcptools.Options{OutDir: *outDir})
+	mcptools.Register(server, client, mcptools.Options{
+		OutDir:     *outDir,
+		ReadOnly:   *readOnly,
+		AllowPush:  *push,
+		AllowAdmin: *admin,
+	})
 
 	if *addr != "" {
 		handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)

@@ -71,55 +71,47 @@ func (r *registry) searchTools(s *mcp.Server) {
 		Name: "lk_url_info",
 		Description: "Find the captures in which an exact URL was loaded, most recent first, with the URL nodes and the SHA512 of their bodies. " +
 			"Without an API token only public captures are searched.",
-		Annotations: readOnly(),
 	}, r.urlInfo)
 
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_hostname_info",
 		Description: "Find the captures in which a hostname was contacted, most recent first, with the matching host nodes. " +
 			"Without an API token only public captures are searched.",
-		Annotations: readOnly(),
 	}, r.hostnameInfo)
 
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_hash_info",
 		Description: "Look up a resource body by its complete SHA512: the captures and URL nodes that loaded it, and the body itself, base64-encoded." +
 			hostile,
-		Annotations: readOnly(),
 	}, r.hashInfo)
 
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_tld_captures",
 		Description: "Without tld: the TLDs seen in recent captures. With tld: the [capture UUID, Unix timestamp] pairs of the captures that hit it, " +
 			"or with urls_only the URLs under it.",
-		Annotations: readOnly(),
 	}, r.tldCaptures)
 
 	addTool(r, s, &mcp.Tool{
 		Name:        "lk_categories",
 		Description: "Without category: every category of the instance with the UUIDs of its captures. With category: the UUIDs in that category.",
-		Annotations: readOnly(),
 	}, r.categories)
 
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_recent_captures",
 		Description: "UUIDs of the captures of the instance, most recent first, one page at a time (limit, offset). " +
 			"timestamp keeps only the captures done since that Unix time.",
-		Annotations: readOnly(),
 	}, r.recentCaptures)
 
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_compare_captures",
 		Description: "Compare two captures: root and final URL, final status code, redirect chain with IPs, resources in one, the other or both. " +
 			"different is false when nothing differs.",
-		Annotations: readOnly(),
 	}, r.compareCaptures)
 
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_takedown_info",
 		Description: "Contacts for a takedown request about a capture (whois and abuse addresses of the hostnames and IPs it involved). " +
 			"Needs UWhois on the instance; nothing is sent to anyone.",
-		Annotations: readOnly(),
 	}, r.takedownInfo)
 }
 

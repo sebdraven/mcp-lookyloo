@@ -17,33 +17,42 @@ const (
 )
 
 type Options struct {
-	OutDir string
+	OutDir     string
+	ReadOnly   bool
+	AllowPush  bool
+	AllowAdmin bool
 }
 
 type registry struct {
 	client *lookyloo.Client
-	outDir string
+	opts   Options
 	names  []string
 }
 
-// Register adds the tools to s and returns their names in registration order.
+// Register adds the tools the options allow to s and returns their names in registration order.
 func Register(s *mcp.Server, c *lookyloo.Client, opts Options) []string {
-	r := &registry{client: c, outDir: opts.OutDir}
+	r := &registry{client: c, opts: opts}
 	r.captureTools(s)
 	r.artefactTools(s)
 	r.searchTools(s)
 	r.instanceTools(s)
 	r.submitTools(s)
+	r.pushTools(s)
+	r.adminTools(s)
 	return r.names
 }
 
 func addTool[In, Out any](r *registry, s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
+	level, ok := ToolLevels[t.Name]
+	if !ok {
+		panic("mcptools: tool " + t.Name + " has no level")
+	}
+	if !r.opts.allows(level) {
+		return
+	}
+	t.Annotations = annotations(t.Name, level)
 	mcp.AddTool(s, t, h)
 	r.names = append(r.names, t.Name)
-}
-
-func readOnly() *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: new(false)}
 }
 
 func rawResult(raw json.RawMessage) *mcp.CallToolResult {

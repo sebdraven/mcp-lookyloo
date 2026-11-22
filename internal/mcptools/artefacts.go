@@ -43,7 +43,7 @@ func (r *registry) dir(override string) string {
 	if d := strings.TrimSpace(override); d != "" {
 		return d
 	}
-	return strings.TrimSpace(r.outDir)
+	return strings.TrimSpace(r.opts.OutDir)
 }
 
 func (r *registry) artefactTools(s *mcp.Server) {
@@ -51,7 +51,6 @@ func (r *registry) artefactTools(s *mcp.Server) {
 		Name: "lk_capture_screenshot",
 		Description: "The PNG screenshot of a capture, returned as an image, with its size and complete SHA256. " +
 			"When out_dir (or the server's -out) is set it is also written there as <uuid>.png. The capture must be done.",
-		Annotations: readOnly(),
 	}, r.screenshot)
 
 	addTool(r, s, &mcp.Tool{
@@ -59,14 +58,12 @@ func (r *registry) artefactTools(s *mcp.Server) {
 		Description: "The file the capture downloaded, as the ZIP Lookyloo builds, written to out_dir (or the server's -out) as <uuid>-data.zip. " +
 			"Only the path, size, complete SHA256 and the entry names are returned; the archive is never extracted. " +
 			"A single entry named no_download means the page triggered no download. The content may be malware.",
-		Annotations: readOnly(),
 	}, r.archive(r.client.SaveData))
 
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_capture_export",
 		Description: "Every file the capture produced (HAR, HTML, screenshot, DNS data, settings) as a ZIP, written to out_dir (or the server's -out) as <uuid>-export.zip. " +
 			"Only the path, size, complete SHA256 and the entry names are returned; the archive is never extracted.",
-		Annotations: readOnly(),
 	}, r.archive(r.client.SaveExport))
 }
 
