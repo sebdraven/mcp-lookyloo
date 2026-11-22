@@ -25,6 +25,8 @@ func main() {
 		baseURL = flag.String("url", "", "Lookyloo instance URL (default: $"+lookyloo.EnvURL+", then "+lookyloo.DefaultBaseURL+")")
 		info    = flag.String("info", "", "print the information of one capture and exit")
 		urlInfo = flag.String("url-info", "", "print the captures in which this URL was seen and exit")
+		submit  = flag.String("submit", "", "submit one URL (listing off), print its UUID and exit")
+		wait    = flag.Bool("wait", false, "with -submit, wait for the capture to finish")
 		addr    = flag.String("http", "", "serve streamable HTTP on this address instead of stdio; no authentication, bind to 127.0.0.1 (e.g. 127.0.0.1:8080)")
 		showVer = flag.Bool("version", false, "print the version and exit")
 	)
@@ -55,6 +57,30 @@ func main() {
 		raw, err := json.Marshal(found)
 		if err != nil {
 			log.Fatalf("encoding the response: %v", err)
+		}
+		printJSON(raw)
+		return
+	}
+
+	if *submit != "" {
+		id, err := client.Submit(ctx, lookyloo.SubmitParams{URL: *submit})
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		out := map[string]any{"capture_uuid": id, "outcome": "submitted"}
+		if *wait {
+			w, err := client.Wait(ctx, id, lookyloo.DefaultWaitTimeout)
+			if err != nil {
+				log.Fatalf("capture %s: %v", id, err)
+			}
+			out["outcome"], out["status_code"], out["polls"] = w.Outcome, w.StatusCode, w.Polls
+			if w.Error != "" {
+				out["capture_error"] = w.Error
+			}
+		}
+		raw, err := json.Marshal(out)
+		if err != nil {
+			log.Fatalf("encoding the result: %v", err)
 		}
 		printJSON(raw)
 		return

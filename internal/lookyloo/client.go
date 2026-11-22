@@ -26,11 +26,13 @@ const (
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Client struct {
-	baseURL   string
-	userAgent string
-	http      *http.Client
-	bulk      *http.Client
-	tokens    TokenSource
+	baseURL      string
+	userAgent    string
+	http         *http.Client
+	bulk         *http.Client
+	tokens       TokenSource
+	pollInterval time.Duration
+	sleep        func(context.Context, time.Duration) error
 }
 
 type Option func(*Client)
@@ -60,6 +62,9 @@ func New(baseURL string, opts ...Option) *Client {
 		userAgent: "mcp-lookyloo/dev",
 		http:      &http.Client{Timeout: DefaultTimeout},
 		bulk:      &http.Client{Timeout: ArtefactTimeout},
+
+		pollInterval: DefaultPollInterval,
+		sleep:        sleepCtx,
 	}
 	for _, o := range opts {
 		o(c)
