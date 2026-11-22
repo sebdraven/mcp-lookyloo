@@ -100,3 +100,47 @@ jobs:
 
       - name: version reports itself
         run: ./bin/mcp-lookyloo -version
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: arm64
+            ext: ''
+          - goos: linux
+            goarch: amd64
+            ext: ''
+          - goos: windows
+            goarch: amd64
+            ext: '.exe'
+          - goos: darwin
+            goarch: arm64
+            ext: ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: cross-compile as release.yml does
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          EXT: ${{ matrix.ext }}
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          suffix="${GOOS}-${GOARCH}"
+          bin="mcp-lookyloo-${suffix}${EXT}"
+          go build -trimpath -ldflags="-s -w -X main.version=ci" -o "$bin" ./cmd/mcp-lookyloo
+          sha256sum "$bin" > "checksums-${suffix}.txt"
+          grep -Eq '^[0-9a-f]{64}  ' "checksums-${suffix}.txt"
+          file "$bin" | tee -a "$GITHUB_STEP_SUMMARY"
+          cat "checksums-${suffix}.txt" >> "$GITHUB_STEP_SUMMARY"
