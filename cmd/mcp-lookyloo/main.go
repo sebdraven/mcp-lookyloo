@@ -23,6 +23,7 @@ func main() {
 	var (
 		baseURL = flag.String("url", "", "Lookyloo instance URL (default: $"+lookyloo.EnvURL+", then "+lookyloo.DefaultBaseURL+")")
 		info    = flag.String("info", "", "print the information of one capture and exit")
+		urlInfo = flag.String("url-info", "", "print the captures in which this URL was seen and exit")
 		addr    = flag.String("http", "", "serve streamable HTTP on this address instead of stdio; no authentication, bind to 127.0.0.1 (e.g. 127.0.0.1:8080)")
 		showVer = flag.Bool("version", false, "print the version and exit")
 	)
@@ -40,6 +41,19 @@ func main() {
 		raw, err := client.CaptureInfo(ctx, *info)
 		if err != nil {
 			log.Fatalf("%v", err)
+		}
+		printJSON(raw)
+		return
+	}
+
+	if *urlInfo != "" {
+		found, err := client.URLInfo(ctx, *urlInfo, 20, true)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		raw, err := json.Marshal(found)
+		if err != nil {
+			log.Fatalf("encoding the response: %v", err)
 		}
 		printJSON(raw)
 		return
