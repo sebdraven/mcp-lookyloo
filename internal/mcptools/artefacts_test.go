@@ -89,9 +89,10 @@ func TestScreenshotFallsBackToFlagOrNoFile(t *testing.T) {
 
 	e = start(t, routes(), "", Options{})
 	res := e.call(t, "lk_capture_screenshot", map[string]any{"capture_uuid": captureUUID})
-	decode(t, res, &out)
-	if out.Path != "" {
-		t.Errorf("a file was written without out_dir: %q", out.Path)
+	var bare artefactResult
+	decode(t, res, &bare)
+	if bare.Path != "" {
+		t.Errorf("a file was written without out_dir: %q", bare.Path)
 	}
 	if _, ok := res.Content[0].(*mcp.ImageContent); !ok {
 		t.Errorf("no inline image without out_dir")
