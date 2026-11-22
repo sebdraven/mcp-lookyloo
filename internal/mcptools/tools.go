@@ -33,6 +33,7 @@ func Register(s *mcp.Server, c *lookyloo.Client, opts Options) []string {
 	r.artefactTools(s)
 	r.searchTools(s)
 	r.instanceTools(s)
+	r.submitTools(s)
 	return r.names
 }
 

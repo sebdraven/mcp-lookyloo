@@ -83,7 +83,8 @@ func TestUserConfigRejectedToken(t *testing.T) {
 
 func TestRegisteredTools(t *testing.T) {
 	e := start(t, map[string]reply{}, "", Options{})
-	want := slices.Concat(captureTools, artefactTools, searchTools, []string{"lk_devices", "lk_instance_stats", "lk_user_config"})
+	read := slices.Concat(captureTools, artefactTools, searchTools, []string{"lk_devices", "lk_instance_stats", "lk_user_config"})
+	want := slices.Concat(read, submitTools)
 	if !slices.Equal(e.names, want) {
 		t.Errorf("Register returned %v, want %v", e.names, want)
 	}
@@ -94,16 +95,20 @@ func TestRegisteredTools(t *testing.T) {
 	var listed []string
 	for _, tool := range res.Tools {
 		listed = append(listed, tool.Name)
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
-			t.Errorf("%s is not annotated read-only", tool.Name)
+		a := tool.Annotations
+		if a == nil || a.OpenWorldHint == nil {
+			t.Errorf("%s has no openWorldHint", tool.Name)
+			continue
 		}
-		if tool.Annotations != nil && (tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint) {
-			t.Errorf("%s: openWorldHint must be false for a read tool", tool.Name)
+		if slices.Contains(read, tool.Name) && (!a.ReadOnlyHint || *a.OpenWorldHint) {
+			t.Errorf("%s: a read tool must be readOnlyHint=true, openWorldHint=false", tool.Name)
+		}
+		if slices.Contains(submitTools, tool.Name) && (a.ReadOnlyHint || !*a.OpenWorldHint || a.DestructiveHint == nil || *a.DestructiveHint) {
+			t.Errorf("%s: a submit tool must be openWorldHint=true, not read-only, not destructive", tool.Name)
 		}
 	}
 	slices.Sort(listed)
-	sorted := slices.Sorted(slices.Values(want))
-	if !slices.Equal(listed, sorted) {
+	if !slices.Equal(listed, slices.Sorted(slices.Values(want))) {
 		t.Errorf("listed %v", listed)
 	}
 }

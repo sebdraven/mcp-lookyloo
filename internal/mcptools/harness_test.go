@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sebdraven/mcp-lookyloo/internal/lookyloo"
@@ -21,11 +22,14 @@ const (
 	unknownUUID = "00000000-0000-4000-8000-000000000000"
 )
 
+const pollInterval = 250 * time.Millisecond
+
 type reply struct {
 	status  int
 	fixture string
 	body    string
 	ctype   string
+	bodies  []string
 }
 
 type seen struct {
@@ -41,10 +45,11 @@ type fake struct {
 	mu     sync.Mutex
 	routes map[string]reply
 	calls  []seen
+	served map[string]int
 }
 
 func newFake(t *testing.T, routes map[string]reply) *fake {
-	return &fake{t: t, routes: routes}
+	return &fake{t: t, routes: routes, served: map[string]int{}}
 }
 
 func readFixture(t *testing.T, name string) []byte {
@@ -60,7 +65,10 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	f.mu.Lock()
 	f.calls = append(f.calls, seen{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, header: r.Header.Clone(), body: body})
-	rep, ok := f.routes[r.Method+" "+r.URL.Path]
+	key := r.Method + " " + r.URL.Path
+	rep, ok := f.routes[key]
+	n := f.served[key]
+	f.served[key]++
 	f.mu.Unlock()
 	if !ok {
 		f.t.Errorf("unexpected request %s %s", r.Method, r.URL)
@@ -68,6 +76,9 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := []byte(rep.body)
+	if len(rep.bodies) > 0 {
+		b = []byte(rep.bodies[min(n, len(rep.bodies)-1)])
+	}
 	if rep.fixture != "" {
 		b = readFixture(f.t, rep.fixture)
 	}
@@ -102,7 +113,7 @@ func start(t *testing.T, routes map[string]reply, token string, opts Options) *e
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 
-	c := lookyloo.New(srv.URL, lookyloo.WithTokenSource(lookyloo.StaticToken(token)))
+	c := lookyloo.New(srv.URL, lookyloo.WithTokenSource(lookyloo.StaticToken(token)), lookyloo.WithPollInterval(pollInterval))
 	s := mcp.NewServer(&mcp.Implementation{Name: "lookyloo", Version: "test"}, nil)
 	names := Register(s, c, opts)
 
