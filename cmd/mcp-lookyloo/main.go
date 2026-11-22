@@ -21,6 +21,7 @@ var version = "dev"
 
 func main() {
 	var (
+		outDir  = flag.String("out", "", "default directory for saved artefacts (screenshots, ZIPs)")
 		baseURL = flag.String("url", "", "Lookyloo instance URL (default: $"+lookyloo.EnvURL+", then "+lookyloo.DefaultBaseURL+")")
 		info    = flag.String("info", "", "print the information of one capture and exit")
 		urlInfo = flag.String("url-info", "", "print the captures in which this URL was seen and exit")
@@ -63,7 +64,7 @@ func main() {
 		Name:    "lookyloo",
 		Version: version,
 	}, nil)
-	mcptools.Register(server, client, mcptools.Options{})
+	mcptools.Register(server, client, mcptools.Options{OutDir: *outDir})
 
 	if *addr != "" {
 		handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)

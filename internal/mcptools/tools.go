@@ -22,13 +22,15 @@ type Options struct {
 
 type registry struct {
 	client *lookyloo.Client
+	outDir string
 	names  []string
 }
 
 // Register adds the tools to s and returns their names in registration order.
-func Register(s *mcp.Server, c *lookyloo.Client, _ Options) []string {
-	r := &registry{client: c}
+func Register(s *mcp.Server, c *lookyloo.Client, opts Options) []string {
+	r := &registry{client: c, outDir: opts.OutDir}
 	r.captureTools(s)
+	r.artefactTools(s)
 	r.searchTools(s)
 	r.instanceTools(s)
 	return r.names
