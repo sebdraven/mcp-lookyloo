@@ -38,7 +38,7 @@ type submitInput struct {
 	Headers           string           `json:"headers,omitempty" jsonschema:"extra headers, e.g. Accept-Language: en-US;q=0.5, fr-FR;q=0.4"`
 	Proxy             string           `json:"proxy,omitempty" jsonschema:"proxy for the capture, scheme://[user:password@]host:port; never logged nor returned"`
 	Cookies           string           `json:"cookies,omitempty" jsonschema:"JSON export of a list of cookies, e.g. from lk_capture_cookies"`
-	AutoReport        *autoReportInput `json:"auto_report,omitempty" jsonschema:"have Lookyloo email the capture to its investigation team when done"`
+	AutoReport        *autoReportInput `json:"auto_report,omitempty" jsonschema:"have Lookyloo email the capture to its investigation team when done; needs -allow-push"`
 	Wait              bool             `json:"wait,omitempty" jsonschema:"poll the status until the capture is done, unknown or wait_timeout is reached"`
 	WaitTimeout       int              `json:"wait_timeout,omitempty" jsonschema:"seconds to wait for, 1 to 3600 (default 120)"`
 }
@@ -58,10 +58,6 @@ type triggerInput struct {
 	Force       bool   `json:"force,omitempty" jsonschema:"run the modules again even if their results are cached"`
 }
 
-func submitLevel() *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{OpenWorldHint: new(true), DestructiveHint: new(false)}
-}
-
 func (r *registry) submitTools(s *mcp.Server) {
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_submit",
@@ -69,14 +65,12 @@ func (r *registry) submitTools(s *mcp.Server) {
 			"The capture is NOT listed on the public index unless listing is true. " +
 			"With wait, polls the status every few seconds until done (then returns lk_capture_info), until the instance reports the UUID unknown 3 times in a row (error), or until wait_timeout (outcome timed_out). " +
 			"The browser of the instance visits the URL: never submit a URL that carries a secret.",
-		Annotations: submitLevel(),
 	}, r.submit)
 
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_trigger_modules",
 		Description: "Run the third-party modules configured on the instance (e.g. VirusTotal, PhishTank, URLhaus) on a capture; " +
 			"read their answers with lk_capture_modules. force re-runs them even if cached.",
-		Annotations: submitLevel(),
 	}, r.triggerModules)
 }
 
@@ -105,6 +99,9 @@ func (r *registry) submit(ctx context.Context, _ *mcp.CallToolRequest, in submit
 	}
 	if sources != 1 {
 		return nil, submitOutput{}, errors.New("give exactly one of url, document_path or document")
+	}
+	if in.AutoReport != nil && !r.opts.allows(Push) {
+		return nil, submitOutput{}, errors.New("auto_report makes Lookyloo email its investigation team, an effect outside the instance: start the server with -allow-push to use it")
 	}
 	timeout := lookyloo.DefaultWaitTimeout
 	if in.WaitTimeout != 0 {

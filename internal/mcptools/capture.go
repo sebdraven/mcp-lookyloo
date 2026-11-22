@@ -56,7 +56,7 @@ type hashesOutput struct {
 type rawFunc func(ctx context.Context, uuid string) (json.RawMessage, error)
 
 func (r *registry) rawCaptureTool(s *mcp.Server, name, description string, fetch rawFunc) {
-	addTool(r, s, &mcp.Tool{Name: name, Description: description, Annotations: readOnly()},
+	addTool(r, s, &mcp.Tool{Name: name, Description: description},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in captureInput) (*mcp.CallToolResult, any, error) {
 			raw, err := fetch(ctx, in.CaptureUUID)
 			if err != nil {
@@ -77,7 +77,6 @@ func (r *registry) captureTools(s *mcp.Server) {
 		Name: "lk_capture_status",
 		Description: "Status of a capture: status_code -1 unknown UUID, 0 queued, 1 done, 2 ongoing. " +
 			"with_error adds the error message of a finished capture that failed.",
-		Annotations: readOnly(),
 	}, r.status)
 
 	r.rawCaptureTool(s, "lk_capture_stats",
@@ -90,13 +89,11 @@ func (r *registry) captureTools(s *mcp.Server) {
 		Name: "lk_capture_urls",
 		Description: "Every URL loaded by a capture, sorted, one page at a time (limit, offset; next_offset gives the following page)." +
 			hostile,
-		Annotations: readOnly(),
 	}, r.urls)
 
 	addTool(r, s, &mcp.Tool{
 		Name:        "lk_capture_hostnames",
 		Description: "Every hostname contacted by a capture, sorted, one page at a time (limit, offset; next_offset gives the following page).",
-		Annotations: readOnly(),
 	}, r.hostnames)
 
 	addTool(r, s, &mcp.Tool{
@@ -104,7 +101,6 @@ func (r *registry) captureTools(s *mcp.Server) {
 		Description: "Hashes of every resource loaded by a capture, sorted, one page at a time. " +
 			"sha512 is precomputed by Lookyloo; other algorithms are computed on request. " +
 			"Hashes are always complete; feed a sha512 to lk_hash_info to find other captures that loaded the same body.",
-		Annotations: readOnly(),
 	}, r.hashes)
 
 	r.rawCaptureTool(s, "lk_capture_cookies",
@@ -114,7 +110,6 @@ func (r *registry) captureTools(s *mcp.Server) {
 		Name: "lk_capture_comparables",
 		Description: "The data Lookyloo compares across captures: root and final URL, final hostname and status code, redirect nodes with their IPs, resources. " +
 			"fields is a mask (X-Fields) to return only some of them.",
-		Annotations: readOnly(),
 	}, r.comparables)
 
 	r.rawCaptureTool(s, "lk_capture_modules",
