@@ -29,6 +29,7 @@ type registry struct {
 func Register(s *mcp.Server, c *lookyloo.Client, _ Options) []string {
 	r := &registry{client: c}
 	r.captureTools(s)
+	r.searchTools(s)
 	r.instanceTools(s)
 	return r.names
 }

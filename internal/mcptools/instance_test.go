@@ -83,7 +83,7 @@ func TestUserConfigRejectedToken(t *testing.T) {
 
 func TestRegisteredTools(t *testing.T) {
 	e := start(t, map[string]reply{}, "", Options{})
-	want := append(slices.Clone(captureTools), "lk_devices", "lk_instance_stats", "lk_user_config")
+	want := slices.Concat(captureTools, searchTools, []string{"lk_devices", "lk_instance_stats", "lk_user_config"})
 	if !slices.Equal(e.names, want) {
 		t.Errorf("Register returned %v, want %v", e.names, want)
 	}
