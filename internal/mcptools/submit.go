@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,10 +22,10 @@ type autoReportInput struct {
 
 type submitInput struct {
 	URL               string           `json:"url,omitempty" jsonschema:"URL to capture; give exactly one of url, document_path, document"`
-	DocumentPath      string           `json:"document_path,omitempty" jsonschema:"local file to capture (HTML, PDF...); the server reads and base64-encodes it"`
+	DocumentPath      string           `json:"document_path,omitempty" jsonschema:"file to capture (HTML, PDF...), relative to or inside -files-root; refused when the server runs without -files-root"`
 	Document          string           `json:"document,omitempty" jsonschema:"base64 of a document to capture; needs document_name"`
 	DocumentName      string           `json:"document_name,omitempty" jsonschema:"name of the document (default: the base name of document_path)"`
-	Listing           bool             `json:"listing,omitempty" jsonschema:"show the capture on the public index of the instance (default false)"`
+	Listing           bool             `json:"listing,omitempty" jsonschema:"show the capture on the web index of the instance (default false); false does not make it private, it stays listed by the recent_captures API"`
 	AllowTracking     *bool            `json:"allow_tracking,omitempty" jsonschema:"let the site track the browser (Lookyloo default true)"`
 	JavaScriptEnabled *bool            `json:"java_script_enabled,omitempty" jsonschema:"run JavaScript (Lookyloo default true)"`
 	UserAgent         string           `json:"user_agent,omitempty" jsonschema:"user agent string"`
@@ -62,7 +59,7 @@ func (r *registry) submitTools(s *mcp.Server) {
 	addTool(r, s, &mcp.Tool{
 		Name: "lk_submit",
 		Description: "Submit a URL or a document to the instance for a new capture; returns its UUID. " +
-			"The capture is NOT listed on the public index unless listing is true. " +
+			"The capture is NOT listed on the public index unless listing is true, but listing=false only hides it from the web index: it stays visible to anyone through the recent_captures API of the instance, so never submit anything confidential to a shared instance. " +
 			"With wait, polls the status every few seconds until done (then returns lk_capture_info), until the instance reports the UUID unknown 3 times in a row (error), or until wait_timeout (outcome timed_out). " +
 			"The browser of the instance visits the URL: never submit a URL that carries a secret.",
 	}, r.submit)
@@ -74,20 +71,12 @@ func (r *registry) submitTools(s *mcp.Server) {
 	}, r.triggerModules)
 }
 
-func readDocument(path string) (string, string, error) {
-	f, err := os.Open(path)
+func (r *registry) readDocument(path string) (string, string, error) {
+	b, name, err := r.opts.FilesRoot.ReadFile("document_path", path, maxDocumentBytes)
 	if err != nil {
-		return "", "", fmt.Errorf("document_path: %w", err)
+		return "", "", err
 	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxDocumentBytes+1))
-	if err != nil {
-		return "", "", fmt.Errorf("document_path: %w", err)
-	}
-	if len(b) > maxDocumentBytes {
-		return "", "", fmt.Errorf("document_path: the file is larger than %d bytes", maxDocumentBytes)
-	}
-	return base64.StdEncoding.EncodeToString(b), filepath.Base(path), nil
+	return base64.StdEncoding.EncodeToString(b), name, nil
 }
 
 func (r *registry) submit(ctx context.Context, _ *mcp.CallToolRequest, in submitInput) (*mcp.CallToolResult, submitOutput, error) {
@@ -130,7 +119,7 @@ func (r *registry) submit(ctx context.Context, _ *mcp.CallToolRequest, in submit
 		p.AutoReport = &lookyloo.AutoReport{Email: in.AutoReport.Email, Comment: in.AutoReport.Comment}
 	}
 	if path := strings.TrimSpace(in.DocumentPath); path != "" {
-		doc, name, err := readDocument(path)
+		doc, name, err := r.readDocument(path)
 		if err != nil {
 			return nil, submitOutput{}, err
 		}

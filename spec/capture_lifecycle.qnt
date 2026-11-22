@@ -1,5 +1,5 @@
 // lk_submit with wait: submission, bounded polling of /json/<uuid>/status (SPEC §2.5, §5.1).
-// Status codes from lacuscore 1.12.0 CaptureStatus, as pinned by Lookyloo 1.27.0, and seen on citizen-lab.
+// Status codes from lacuscore 1.12.0 CaptureStatus, as pinned by Lookyloo 1.27.0, and seen on the development instance.
 module capture_lifecycle {
   type Status = Unknown | Queued | Done | Ongoing
   type Phase = Idle | Waiting | Finished

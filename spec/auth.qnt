@@ -1,21 +1,21 @@
 // Token resolution for the Lookyloo client (SPEC §3, §5.3).
+// Only a token is cached; a failed resolution is retried in full on the next call.
 module auth {
   type Source = Env | Keychain | GetToken | NoSource
   type Mode = Required | Optional
-  type HTTPCall = { mode: Mode, header: bool }
+  // ok: whether get_token would succeed on this attempt; cached: served from the cache; sent: reached HTTP
+  type Attempt = { mode: Mode, ok: bool, cached: bool, source: Source, sent: bool, header: bool }
 
   // what the process environment offers, fixed for the lifetime of a run
   var envSet: bool
   var keychainSet: bool
   var credsSet: bool
-  var getTokenOK: bool
 
-  var resolved: bool
   var token: Source
   var getTokenCalls: int
-  var keychainCalls: int
-  var httpLog: List[HTTPCall]
-  var errors: int
+  var getTokenCallsWithToken: int
+  var keychainCallsWithToken: int
+  var attempts: List[Attempt]
 
   pure def chain(env: bool, kc: bool, creds: bool, ok: bool): Source =
     if (env) Env
@@ -27,148 +27,162 @@ module auth {
     nondet e = Bool.oneOf()
     nondet k = Bool.oneOf()
     nondet c = Bool.oneOf()
-    nondet ok = Bool.oneOf()
     all {
       envSet' = e,
       keychainSet' = k,
       credsSet' = c,
-      getTokenOK' = ok,
-      resolved' = false,
       token' = NoSource,
       getTokenCalls' = 0,
-      keychainCalls' = 0,
-      httpLog' = [],
-      errors' = 0,
+      getTokenCallsWithToken' = 0,
+      keychainCallsWithToken' = 0,
+      attempts' = [],
     }
   }
 
-  // one call through the client: resolve once if needed, then send or fail
-  action call(m: Mode): bool = {
-    val t = if (resolved) token else chain(envSet, keychainSet, credsSet, getTokenOK)
-    val askKeychain = not(resolved) and not(envSet)
-    val askGetToken = not(resolved) and not(envSet) and not(keychainSet) and credsSet
+  // one call through the client; get_token succeeds on this attempt iff ok (a network failure otherwise)
+  action call(m: Mode, ok: bool): bool = {
+    val cached = token != NoSource
+    val t = if (cached) token else chain(envSet, keychainSet, credsSet, ok)
+    val askKeychain = not(cached) and not(envSet)
+    val askGetToken = not(cached) and not(envSet) and not(keychainSet) and credsSet
+    val sent = not(m == Required and t == NoSource)
     all {
       envSet' = envSet,
       keychainSet' = keychainSet,
       credsSet' = credsSet,
-      getTokenOK' = getTokenOK,
-      resolved' = true,
-      token' = t,
-      keychainCalls' = if (askKeychain) keychainCalls + 1 else keychainCalls,
+      token' = if (t != NoSource) t else token,
       getTokenCalls' = if (askGetToken) getTokenCalls + 1 else getTokenCalls,
-      if (m == Required and t == NoSource) all {
-        httpLog' = httpLog,
-        errors' = errors + 1,
-      } else all {
-        httpLog' = httpLog.append({ mode: m, header: t != NoSource }),
-        errors' = errors,
-      },
+      getTokenCallsWithToken' = if (askGetToken and token != NoSource) getTokenCallsWithToken + 1 else getTokenCallsWithToken,
+      keychainCallsWithToken' = if (askKeychain and token != NoSource) keychainCallsWithToken + 1 else keychainCallsWithToken,
+      attempts' = attempts.append({ mode: m, ok: ok, cached: cached, source: t, sent: sent, header: sent and t != NoSource }),
     }
   }
 
   action step = {
     nondet m = Set(Required, Optional).oneOf()
-    call(m)
+    nondet ok = Bool.oneOf()
+    call(m, ok)
   }
 
-  val getTokenAtMostOnce = getTokenCalls <= 1
+  // once a token is obtained, get_token and the keychain are never asked again
+  val noGetTokenOnceTokenObtained = getTokenCallsWithToken == 0
 
-  val keychainAtMostOnce = keychainCalls <= 1
+  val noKeychainOnceTokenObtained = keychainCallsWithToken == 0
+
+  // only a token is cached
+  val onlySuccessIsCached = attempts.foldl(true, (acc, a) => acc and (a.cached implies a.source != NoSource))
+
+  // an attempt not served from the cache gets what env, keychain, get_token give now, in that order:
+  // an earlier failure never blocks it
+  val failureNeverSticks =
+    attempts.foldl(true, (acc, a) => acc and (a.cached or a.source == chain(envSet, keychainSet, credsSet, a.ok)))
 
   val getTokenOnlyAsLastResort =
     getTokenCalls > 0 implies (not(envSet) and not(keychainSet) and credsSet)
 
-  val priorityRespected = resolved implies (token == chain(envSet, keychainSet, credsSet, getTokenOK))
+  val cachedTokenFollowsPriority = token != NoSource implies token == chain(envSet, keychainSet, credsSet, true)
 
-  val envAlwaysWins = (resolved and envSet) implies (token == Env and keychainCalls == 0 and getTokenCalls == 0)
+  val envAlwaysWins = envSet implies (getTokenCalls == 0 and (attempts.length() > 0 implies token == Env))
 
   val noAuthenticatedCallWithoutHeader =
-    httpLog.foldl(true, (acc, c) => acc and (c.mode == Required implies c.header))
-
-  val errorsOnlyWithoutToken = errors > 0 implies token == NoSource
+    attempts.foldl(true, (acc, a) => acc and ((a.sent and a.mode == Required) implies a.header))
 
   val allInvariants = and {
-    getTokenAtMostOnce,
-    keychainAtMostOnce,
+    noGetTokenOnceTokenObtained,
+    noKeychainOnceTokenObtained,
+    onlySuccessIsCached,
+    failureNeverSticks,
     getTokenOnlyAsLastResort,
-    priorityRespected,
+    cachedTokenFollowsPriority,
     envAlwaysWins,
     noAuthenticatedCallWithoutHeader,
-    errorsOnlyWithoutToken,
   }
 
-  action setup(e: bool, k: bool, c: bool, ok: bool): bool = all {
+  pure def sentCount(l: List[Attempt]): int = l.foldl(0, (n, a) => if (a.sent) n + 1 else n)
+
+  action setup(e: bool, k: bool, c: bool): bool = all {
     envSet' = e,
     keychainSet' = k,
     credsSet' = c,
-    getTokenOK' = ok,
-    resolved' = false,
     token' = NoSource,
     getTokenCalls' = 0,
-    keychainCalls' = 0,
-    httpLog' = [],
-    errors' = 0,
+    getTokenCallsWithToken' = 0,
+    keychainCallsWithToken' = 0,
+    attempts' = [],
   }
 
   run envWinsTest =
-    setup(true, true, true, true)
-      .then(call(Required))
-      .then(call(Required))
+    setup(true, true, true)
+      .then(call(Required, true))
+      .then(call(Required, false))
       .then(all {
         assert(token == Env),
-        assert(keychainCalls == 0),
         assert(getTokenCalls == 0),
-        assert(httpLog.length() == 2),
-        call(Optional),
+        assert(sentCount(attempts) == 2),
+        call(Optional, true),
       })
 
   run keychainFallbackTest =
-    setup(false, true, true, true)
-      .then(call(Required))
+    setup(false, true, true)
+      .then(call(Required, false))
       .then(all {
         assert(token == Keychain),
-        assert(keychainCalls == 1),
         assert(getTokenCalls == 0),
-        call(Required),
+        call(Required, false),
+      })
+      .then(all {
+        assert(attempts[1].cached),
+        assert(allInvariants),
+        call(Optional, true),
       })
 
-  run getTokenOnceTest =
-    setup(false, false, true, true)
-      .then(call(Optional))
-      .then(call(Required))
-      .then(call(Required))
+  run getTokenOnceObtainedTest =
+    setup(false, false, true)
+      .then(call(Optional, true))
+      .then(call(Required, false))
+      .then(call(Required, false))
       .then(all {
         assert(token == GetToken),
         assert(getTokenCalls == 1),
-        assert(httpLog.length() == 3),
+        assert(sentCount(attempts) == 3),
         assert(noAuthenticatedCallWithoutHeader),
-        call(Optional),
+        call(Optional, true),
       })
 
-  run getTokenFailureNotRetriedTest =
-    setup(false, false, true, false)
-      .then(call(Required))
-      .then(call(Required))
+  run getTokenFailureRetriedTest =
+    setup(false, false, true)
+      .then(call(Required, false))
       .then(all {
         assert(token == NoSource),
+        assert(not(attempts[0].sent)),
         assert(getTokenCalls == 1),
-        assert(errors == 2),
-        assert(httpLog.length() == 0),
-        call(Optional),
+        call(Required, true),
+      })
+      .then(all {
+        assert(token == GetToken),
+        assert(getTokenCalls == 2),
+        assert(attempts[1].sent and attempts[1].header),
+        call(Required, false),
+      })
+      .then(all {
+        assert(getTokenCalls == 2),
+        assert(attempts[2].cached and attempts[2].header),
+        assert(allInvariants),
+        call(Optional, true),
       })
 
   run requiredWithoutTokenErrorsTest =
-    setup(false, false, false, false)
-      .then(call(Required))
+    setup(false, false, false)
+      .then(call(Required, true))
       .then(all {
-        assert(errors == 1),
-        assert(httpLog.length() == 0),
+        assert(not(attempts[0].sent)),
         assert(getTokenCalls == 0),
-        call(Optional),
+        call(Optional, true),
       })
       .then(all {
-        assert(httpLog.length() == 1),
-        assert(httpLog[0].header == false),
-        call(Optional),
+        assert(attempts[1].sent),
+        assert(not(attempts[1].header)),
+        assert(not(attempts[1].cached)),
+        call(Optional, true),
       })
 }

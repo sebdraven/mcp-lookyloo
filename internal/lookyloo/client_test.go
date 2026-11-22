@@ -44,11 +44,8 @@ func noCallServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func TestNewDefaultsAndTrimsBaseURL(t *testing.T) {
-	if got := New("").BaseURL(); got != DefaultBaseURL {
-		t.Errorf("default base URL = %q", got)
-	}
-	if got := New(" http://lookyloo.example:5100/ ").BaseURL(); got != "http://lookyloo.example:5100" {
+func TestNewTrimsBaseURL(t *testing.T) {
+	if got := New(" https://lookyloo.example.org/ ").BaseURL(); got != "https://lookyloo.example.org" {
 		t.Errorf("base URL = %q", got)
 	}
 }

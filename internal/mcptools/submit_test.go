@@ -140,12 +140,13 @@ func TestSubmitWaitReportsTheCaptureError(t *testing.T) {
 }
 
 func TestSubmitDocumentPath(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "lure.html")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lure.html")
 	html := []byte("<html><body>lure</body></html>")
 	if err := os.WriteFile(path, html, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	e := start(t, submitRoutes(statusDone), "", Options{})
+	e := start(t, submitRoutes(statusDone), "", Options{FilesRoot: mustRoot(t, dir)})
 	var out submitResult
 	decode(t, e.call(t, "lk_submit", map[string]any{"document_path": path}), &out)
 	body := submitBody(t, e)
@@ -158,12 +159,13 @@ func TestSubmitDocumentPath(t *testing.T) {
 }
 
 func TestSubmitRejectsBadInputBeforeHTTP(t *testing.T) {
-	e := start(t, map[string]reply{}, "", Options{})
+	dir := t.TempDir()
+	e := start(t, map[string]reply{}, "", Options{FilesRoot: mustRoot(t, dir)})
 	for _, args := range []map[string]any{
 		{},
 		{"url": "https://example.com/", "document": "eA==", "document_name": "x.html"},
 		{"url": "https://example.com/", "document_path": "/etc/hosts"},
-		{"document_path": filepath.Join(t.TempDir(), "missing.html")},
+		{"document_path": filepath.Join(dir, "missing.html")},
 		{"document": "eA=="},
 		{"url": "https://example.com/", "wait": true, "wait_timeout": -1},
 		{"url": "https://example.com/", "wait": true, "wait_timeout": 3601},
